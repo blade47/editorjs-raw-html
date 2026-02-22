@@ -127,6 +127,12 @@ export default class RawTool {
       const c = document.createElement('div');
       c.innerHTML = this.data.html;
       wrapper.appendChild(c);
+
+      // Scripts inserted via innerHTML don't execute (HTML5 spec).
+      // Re-create them as fresh <script> elements after the block is in the DOM.
+      setTimeout(() => {
+        this._executeScripts(c);
+      }, renderingTime);
     }
     setTimeout(() => {
       this.resize();
@@ -165,6 +171,42 @@ export default class RawTool {
     return {
       html: true, // Allow HTML tags
     };
+  }
+
+  /**
+   * Execute script tags that were inserted via innerHTML.
+   * External scripts are loaded sequentially so that dependencies resolve in order.
+   *
+   * @param {HTMLElement} container
+   */
+  _executeScripts(container) {
+    const scripts = Array.from(container.querySelectorAll('script'));
+
+    const runNext = (index) => {
+      if (index >= scripts.length) return;
+
+      const oldScript = scripts[index];
+      const newScript = document.createElement('script');
+
+      Array.from(oldScript.attributes).forEach((attr) => {
+        newScript.setAttribute(attr.name, attr.value);
+      });
+
+      newScript.textContent = oldScript.textContent;
+
+      if (newScript.src) {
+        newScript.onload = () => runNext(index + 1);
+        newScript.onerror = () => runNext(index + 1);
+      }
+
+      oldScript.parentNode.replaceChild(newScript, oldScript);
+
+      if (!newScript.src) {
+        runNext(index + 1);
+      }
+    };
+
+    runNext(0);
   }
 
   /**
